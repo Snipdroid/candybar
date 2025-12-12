@@ -95,7 +95,7 @@ import candybar.lib.utils.listeners.RequestListener;
  * limitations under the License.
  */
 
-public class RequestFragment extends Fragment implements View.OnClickListener {
+public class RequestFragment extends Fragment implements View.OnClickListener, View.OnLongClickListener {
 
     private RecyclerView mRecyclerView;
     private FloatingActionButton mFab;
@@ -159,6 +159,7 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
         tintedDrawable.mutate().setColorFilter(color, PorterDuff.Mode.SRC_IN);
         mFab.setImageDrawable(tintedDrawable);
         mFab.setOnClickListener(this);
+        mFab.setOnLongClickListener(this);
 
         if (!Preferences.get(requireActivity()).isFabShadowEnabled()) {
             mFab.setCompatElevation(0f);
@@ -291,6 +292,24 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
         }
     }
 
+    @Override
+    public boolean onLongClick(View view) {
+        int id = view.getId();
+        if (id == R.id.fab) {
+            if (mAdapter == null) return true;
+
+            int selected = mAdapter.getSelectedItemsSize();
+            if (selected > 0) {
+                // Launch traditional email/ZIP request (marks as requested)
+                mAsyncTask = new RequestLoader(true).executeOnThreadPool();
+            } else {
+                Toast.makeText(getActivity(), R.string.request_not_selected, Toast.LENGTH_LONG).show();
+            }
+            return true;
+        }
+        return false;
+    }
+
     private void resetRecyclerViewPadding(int orientation) {
         if (mRecyclerView == null) return;
 
@@ -401,10 +420,27 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
         private boolean isCustom;
         private boolean isPremium;
         private String errorMessage;
+        private final boolean mForceEmailMethod;
+        private final boolean mSkipDatabaseMark;
+
+        public RequestLoader() {
+            this(false);
+        }
+
+        public RequestLoader(boolean forceEmailMethod) {
+            this.mForceEmailMethod = forceEmailMethod;
+            this.mSkipDatabaseMark = !forceEmailMethod;  // Skip marking when NOT using email
+        }
 
         @Override
         protected void preRun() {
-            if (Preferences.get(requireActivity()).isPremiumRequest()) {
+            if (mForceEmailMethod) {
+                // Force email/ZIP method (long press)
+                isPremium = false;
+                isCustom = false;
+                isPacific = false;
+                pacificApiKey = null;
+            } else if (Preferences.get(requireActivity()).isPremiumRequest()) {
                 isPremium = true;
                 isCustom = RequestHelper.isPremiumCustomEnabled(requireActivity());
                 isPacific = RequestHelper.isPremiumPacificEnabled(requireActivity());
@@ -453,7 +489,7 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
 
                     if (isPacific) {
                         errorMessage = RequestHelper.sendPacificRequest(requests, files, directory, pacificApiKey);
-                        if (errorMessage == null) {
+                        if (errorMessage == null && !mSkipDatabaseMark) {
                             for (Request request : requests) {
                                 Database.get(requireActivity()).addRequest(null, request);
                             }
@@ -461,7 +497,7 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
                         return errorMessage == null;
                     } else if (isCustom) {
                         errorMessage = RequestHelper.sendCustomRequest(requests, isPremium);
-                        if (errorMessage == null) {
+                        if (errorMessage == null && !mSkipDatabaseMark) {
                             for (Request request : requests) {
                                 Database.get(requireActivity()).addRequest(null, request);
                             }
