@@ -200,6 +200,9 @@ public abstract class CandyBarApplication extends Application {
         private boolean mIsCrashReportEnabled = true;
         private JsonStructure mWallpaperJsonStructure = new JsonStructure.Builder(null).build();
 
+        private String mStatisticsServiceEndpoint = "https://apptracker.sg.butanediol.me";
+        private String mStatisticsServiceToken = null;
+
         public Configuration setEmailBodyGenerator(EmailBodyGenerator emailBodyGenerator) {
             mEmailBodyGenerator = emailBodyGenerator;
             return this;
@@ -369,6 +372,35 @@ public abstract class CandyBarApplication extends Application {
 
         public Configuration setOtherApps(@NonNull OtherApp[] otherApps) {
             mOtherApps = Arrays.asList(otherApps);
+            return this;
+        }
+
+        public Configuration setStatisticsServiceEndpoint(@NonNull String endpoint) {
+            mStatisticsServiceEndpoint = endpoint;
+            return this;
+        }
+
+        public Configuration setStatisticsServiceToken(@NonNull String token) {
+            mStatisticsServiceToken = token;
+            return this;
+        }
+
+        public String getStatisticsServiceEndpoint() {
+            return mStatisticsServiceEndpoint;
+        }
+
+        public String getStatisticsServiceToken() {
+            return mStatisticsServiceToken;
+        }
+
+        public Configuration enableStatisticsService(@NonNull Context context, @NonNull String token) {
+            return enableStatisticsService(context, token, "https://apptracker.sg.butanediol.me");
+        }
+
+        public Configuration enableStatisticsService(@NonNull Context context, @NonNull String token, @NonNull String endpoint) {
+            this.mStatisticsServiceToken = token;
+            this.mStatisticsServiceEndpoint = endpoint;
+            this.iconRequestHandler = new candybar.lib.helpers.StatisticsRequestHandler(context);
             return this;
         }
 
