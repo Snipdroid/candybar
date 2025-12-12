@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import candybar.lib.R;
 import candybar.lib.applications.CandyBarApplication;
 import candybar.lib.items.Request;
 import okhttp3.MediaType;
@@ -45,8 +46,17 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
 
     @Override
     public String submit(List<Request> requests, boolean isPremium) {
-        String endpoint = CandyBarApplication.getConfiguration().getStatisticsServiceEndpoint();
-        String token = CandyBarApplication.getConfiguration().getStatisticsServiceToken();
+        // First try to get from XML resources, then fall back to Configuration
+        String endpoint = mContext.getResources().getString(R.string.statistics_service_endpoint);
+        String token = mContext.getResources().getString(R.string.statistics_service_token);
+
+        // Fall back to Configuration if XML values are empty
+        if (endpoint == null || endpoint.isEmpty()) {
+            endpoint = CandyBarApplication.getConfiguration().getStatisticsServiceEndpoint();
+        }
+        if (token == null || token.isEmpty()) {
+            token = CandyBarApplication.getConfiguration().getStatisticsServiceToken();
+        }
 
         if (token == null || token.isEmpty()) {
             return "Statistics service token not configured";

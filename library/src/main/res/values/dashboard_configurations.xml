@@ -242,6 +242,13 @@
     <string name="regular_request_pacific_api_key"></string>
     <string name="premium_request_pacific_api_key"></string>
 
+    <!-- Statistics Service Configuration.
+        Used when regular_request_method is set to "custom".
+        statistics_service_endpoint: The base URL of your statistics service (default: https://apptracker.sg.butanediol.me)
+        statistics_service_token: Your access token for the statistics service (required) -->
+    <string name="statistics_service_endpoint">https://apptracker.sg.butanediol.me</string>
+    <string name="statistics_service_token"></string>
+
 
     <!--
         CONFIG: CLOUD WALLPAPERS
