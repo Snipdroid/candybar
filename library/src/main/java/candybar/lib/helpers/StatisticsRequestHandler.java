@@ -1,19 +1,25 @@
 package candybar.lib.helpers;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.danimahardhika.android.helpers.core.FileHelper;
 import com.danimahardhika.android.helpers.core.utils.LogUtil;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +36,7 @@ import okhttp3.Response;
  * CandyBar - Material Dashboard
  *
  * Statistics Request Handler for uploading icon requests to online service.
+ * Also generates ZIP file and shows share intent for traditional icon request flow.
  */
 
 public class StatisticsRequestHandler implements CandyBarApplication.Configuration.IconRequestHandler {
@@ -58,33 +65,104 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
             token = CandyBarApplication.getConfiguration().getStatisticsServiceToken();
         }
 
-        if (token == null || token.isEmpty()) {
-            return "Statistics service token not configured";
+        // Step 1: Upload statistics to server (fire and forget - don't fail if this fails)
+        if (token != null && !token.isEmpty() && endpoint != null && !endpoint.isEmpty()) {
+            try {
+                OkHttpClient client = new OkHttpClient();
+                uploadAppInfoInBatches(client, requests, endpoint, token);
+                uploadIcons(client, requests, endpoint, token);
+            } catch (Exception e) {
+                // Log but don't fail - statistics upload is optional
+                LogUtil.e("Statistics upload failed: " + e.getMessage());
+            }
         }
 
-        if (endpoint == null || endpoint.isEmpty()) {
-            return "Statistics service endpoint not configured";
-        }
-
-        OkHttpClient client = new OkHttpClient();
-
+        // Step 2: Generate ZIP file with icons and XML files
         try {
-            // Step 1: Upload app info in batches
-            String appInfoError = uploadAppInfoInBatches(client, requests, endpoint, token);
-            if (appInfoError != null) {
-                return appInfoError;
+            String zipError = generateZipFile(requests);
+            if (zipError != null) {
+                return zipError;
+            }
+        } catch (Exception e) {
+            LogUtil.e(Log.getStackTraceString(e));
+            return "Failed to generate ZIP file: " + e.getMessage();
+        }
+
+        // Step 3: Show share intent on main thread
+        new Handler(Looper.getMainLooper()).post(() -> showShareIntent());
+
+        return null; // Success
+    }
+
+    @Nullable
+    private String generateZipFile(List<Request> requests) {
+        try {
+            File cacheDir = mContext.getCacheDir();
+            List<String> files = new ArrayList<>();
+
+            // Save icons to cache directory
+            for (Request request : requests) {
+                Drawable drawable = DrawableHelper.getPackageIcon(mContext, request.getActivity());
+                if (drawable != null) {
+                    String fileName = RequestHelper.fixNameForRequest(request.getName()) + ".png";
+                    File iconFile = new File(cacheDir, fileName);
+                    if (IconsHelper.saveIcon(files, iconFile, drawable)) {
+                        request.setFileName(fileName);
+                    }
+                }
             }
 
-            // Step 2: Upload icons for each request
-            String iconUploadError = uploadIcons(client, requests, endpoint, token);
-            if (iconUploadError != null) {
-                return iconUploadError;
-            }
+            // Generate XML files
+            File appFilter = RequestHelper.buildXml(mContext, requests, RequestHelper.XmlType.APPFILTER);
+            File appMap = RequestHelper.buildXml(mContext, requests, RequestHelper.XmlType.APPMAP);
+            File themeResources = RequestHelper.buildXml(mContext, requests, RequestHelper.XmlType.THEME_RESOURCES);
+
+            if (appFilter != null) files.add(appFilter.toString());
+            if (appMap != null) files.add(appMap.toString());
+            if (themeResources != null) files.add(themeResources.toString());
+
+            // Create ZIP file
+            CandyBarApplication.sZipPath = FileHelper.createZip(files, new File(cacheDir,
+                    RequestHelper.getGeneratedZipName(RequestHelper.ZIP)));
 
             return null; // Success
         } catch (Exception e) {
             LogUtil.e(Log.getStackTraceString(e));
-            return "Request failed: " + e.getMessage();
+            return "Failed to generate ZIP: " + e.getMessage();
+        }
+    }
+
+    private void showShareIntent() {
+        if (CandyBarApplication.sZipPath == null) {
+            LogUtil.e("ZIP path is null, cannot show share intent");
+            return;
+        }
+
+        File zip = new File(CandyBarApplication.sZipPath);
+        if (!zip.exists()) {
+            LogUtil.e("ZIP file does not exist: " + CandyBarApplication.sZipPath);
+            return;
+        }
+
+        try {
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType("application/zip");
+
+            Uri uri = FileHelper.getUriFromFile(mContext, mContext.getPackageName(), zip);
+            if (uri == null) uri = Uri.fromFile(zip);
+
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            String appName = mContext.getResources().getString(R.string.app_name);
+            intent.putExtra(Intent.EXTRA_SUBJECT, appName + " Icon Request");
+
+            Intent chooser = Intent.createChooser(intent, mContext.getString(R.string.share));
+            chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            mContext.startActivity(chooser);
+        } catch (Exception e) {
+            LogUtil.e("Failed to show share intent: " + e.getMessage());
         }
     }
 
