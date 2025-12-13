@@ -460,11 +460,25 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
                         }
                         return errorMessage == null;
                     } else if (isCustom) {
+                        // CUSTOM: Upload to statistics service
                         errorMessage = RequestHelper.sendCustomRequest(requests, isPremium);
                         if (errorMessage == null) {
                             for (Request request : requests) {
                                 Database.get(requireActivity()).addRequest(null, request);
                             }
+
+                            // CUSTOM: Generate ZIP file with icons and XML metadata (mirrors email flow)
+                            // This allows users to download/share the request data after online upload
+                            File appFilter = RequestHelper.buildXml(requireActivity(), requests, RequestHelper.XmlType.APPFILTER);
+                            File appMap = RequestHelper.buildXml(requireActivity(), requests, RequestHelper.XmlType.APPMAP);
+                            File themeResources = RequestHelper.buildXml(requireActivity(), requests, RequestHelper.XmlType.THEME_RESOURCES);
+
+                            if (appFilter != null) files.add(appFilter.toString());
+                            if (appMap != null) files.add(appMap.toString());
+                            if (themeResources != null) files.add(themeResources.toString());
+
+                            CandyBarApplication.sZipPath = FileHelper.createZip(files, new File(directory.toString(),
+                                    RequestHelper.getGeneratedZipName(RequestHelper.ZIP)));
                         }
                         return errorMessage == null;
                     } else {
@@ -548,11 +562,16 @@ public class RequestFragment extends Fragment implements View.OnClickListener {
             dialog = null;
 
             if (ok) {
-                if (isPacific || isCustom) {
+                // CUSTOM: Check if ZIP was generated for custom requests
+                // If ZIP exists, show share dialog; otherwise show toast
+                boolean hasZip = CandyBarApplication.sZipPath != null;
+
+                if (isPacific || (isCustom && !hasZip)) {
                     int toastText = isPacific ? R.string.request_pacific_success : R.string.request_custom_success;
                     Toast.makeText(getActivity(), toastText, Toast.LENGTH_LONG).show();
                     ((RequestListener) getActivity()).onRequestBuilt(null, IntentChooserFragment.ICON_REQUEST);
                 } else {
+                    // Email flow OR custom flow with ZIP
                     IntentChooserFragment.showIntentChooserDialog(getActivity().getSupportFragmentManager(),
                             IntentChooserFragment.ICON_REQUEST);
                 }
