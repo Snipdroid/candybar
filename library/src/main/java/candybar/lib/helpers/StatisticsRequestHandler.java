@@ -156,7 +156,14 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
             for (Request request : batch) {
                 JSONObject appInfo = new JSONObject();
                 appInfo.put("languageCode", languageCode);
-                appInfo.put("mainActivity", request.getActivity());
+
+                // Extract activity name from component format (packageName/activityName)
+                String activity = request.getActivity();
+                if (activity != null && activity.contains("/")) {
+                    activity = activity.substring(activity.indexOf('/') + 1);
+                }
+                appInfo.put("mainActivity", activity);
+
                 appInfo.put("localizedName", request.getName());
                 appInfo.put("defaultName", request.getName());
                 appInfo.put("packageName", request.getPackageName());
