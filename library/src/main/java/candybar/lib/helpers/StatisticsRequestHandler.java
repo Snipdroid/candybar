@@ -198,7 +198,7 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
                 return "Upload interrupted: " + e.getMessage();
             }
 
-            AsyncTaskBase.THREAD_POOL.execute(() -> {
+            AsyncTaskBase.executeOnThreadPool(() -> {
                 try {
                     String error = uploadIcon(client, request, endpoint, token);
                     if (error != null) {

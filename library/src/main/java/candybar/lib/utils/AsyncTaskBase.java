@@ -62,4 +62,12 @@ public abstract class AsyncTaskBase {
     public AsyncTaskBase executeOnThreadPool() {
         return execute(THREAD_POOL);
     }
+
+    /**
+     * Execute a runnable on the shared thread pool.
+     * This is useful for running background tasks without creating an AsyncTaskBase instance.
+     */
+    public static void executeOnThreadPool(Runnable runnable) {
+        THREAD_POOL.execute(runnable);
+    }
 }
