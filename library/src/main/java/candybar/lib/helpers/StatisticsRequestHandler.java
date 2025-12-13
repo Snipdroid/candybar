@@ -15,12 +15,19 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import candybar.lib.R;
 import candybar.lib.applications.CandyBarApplication;
 import candybar.lib.items.Request;
+import candybar.lib.utils.AsyncTaskBase;
+import okhttp3.ConnectionPool;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
@@ -34,9 +41,44 @@ import okhttp3.Response;
 
 public class StatisticsRequestHandler implements CandyBarApplication.Configuration.IconRequestHandler {
 
+    /**
+     * Thread-safe result collector for parallel uploads
+     */
+    private static class UploadResult {
+        private final List<String> errors = Collections.synchronizedList(new ArrayList<>());
+        private final AtomicInteger successCount = new AtomicInteger(0);
+
+        void addError(String error) {
+            errors.add(error);
+        }
+
+        void incrementSuccess() {
+            successCount.incrementAndGet();
+        }
+
+        String getErrorMessage() {
+            if (errors.isEmpty()) return null;
+            return String.format("Icon upload completed with errors. Success: %d, Failed: %d\n%s",
+                successCount.get(), errors.size(),
+                errors.size() == 1 ? errors.get(0) :
+                    String.join("\n", errors.subList(0, Math.min(3, errors.size()))) +
+                    (errors.size() > 3 ? "\n..." : ""));
+        }
+    }
+
     private static final int BATCH_SIZE = 10;
     private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
     private static final MediaType PNG = MediaType.parse("image/png");
+
+    /**
+     * Shared HTTP client with connection pooling for efficient parallel uploads
+     */
+    private static final OkHttpClient SHARED_CLIENT = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectionPool(new ConnectionPool(20, 5, TimeUnit.MINUTES))
+            .build();
 
     private final Context mContext;
 
@@ -66,7 +108,7 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
             return "Statistics service endpoint not configured";
         }
 
-        OkHttpClient client = new OkHttpClient();
+        OkHttpClient client = SHARED_CLIENT;
 
         try {
             // Step 1: Upload app info in batches
@@ -144,13 +186,43 @@ public class StatisticsRequestHandler implements CandyBarApplication.Configurati
 
     @Nullable
     private String uploadIcons(OkHttpClient client, List<Request> requests, String endpoint, String token) {
+        final int MAX_CONCURRENT = 10;
+        Semaphore semaphore = new Semaphore(MAX_CONCURRENT);
+        CountDownLatch latch = new CountDownLatch(requests.size());
+        UploadResult result = new UploadResult();
+
         for (Request request : requests) {
-            String error = uploadIcon(client, request, endpoint, token);
-            if (error != null) {
-                return error;
+            try {
+                semaphore.acquire();
+            } catch (InterruptedException e) {
+                return "Upload interrupted: " + e.getMessage();
             }
+
+            AsyncTaskBase.THREAD_POOL.execute(() -> {
+                try {
+                    String error = uploadIcon(client, request, endpoint, token);
+                    if (error != null) {
+                        result.addError(error);
+                    } else {
+                        result.incrementSuccess();
+                    }
+                } catch (Exception e) {
+                    result.addError("Exception uploading " + request.getPackageName()
+                            + ": " + e.getMessage());
+                } finally {
+                    semaphore.release();
+                    latch.countDown();
+                }
+            });
         }
-        return null;
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            return "Upload interrupted while waiting: " + e.getMessage();
+        }
+
+        return result.getErrorMessage();
     }
 
     @Nullable
